@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grocery Store Invoice App</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/_sdk/data_sdk.js"></script>
+  <script src="/_sdk/element_sdk.js"></script>
+  <style>
+        body {
+            box-sizing: border-box;
+        }
+        .invoice-print {
+            background: white;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        @media print {
+            .no-print { display: none; }
+            .invoice-print { box-shadow: none; }
+        }
+    </style>
+  <style>@view-transition { navigation: auto; }</style>
+ </head>
+ <body class="bg-gray-50 min-h-full">
+  <div class="container mx-auto p-4 max-w-6xl"><!-- Header -->
+   <header class="bg-green-600 text-white p-6 rounded-lg mb-6">
+    <h1 id="store-name" class="text-3xl font-bold">Fresh Mart Grocery</h1>
+    <p id="store-address" class="text-green-100 mt-2">123 Main Street, Anytown, USA</p>
+   </header><!-- Main Content -->
+   <div class="grid lg:grid-cols-2 gap-6"><!-- Product Selection -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+     <h2 class="text-2xl font-bold text-gray-800 mb-4">🛒 Select Products</h2><!-- Customer Name Input -->
+     <div class="mb-4"><label for="customer-name" class="block text-sm font-medium text-gray-700 mb-2">Customer Name</label> <input type="text" id="customer-name" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Enter customer name">
+     </div><!-- Product Grid -->
+     <div id="product-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6"><!-- Products will be populated by JavaScript -->
+     </div><!-- Cart Summary -->
+     <div class="border-t pt-4">
+      <h3 class="text-lg font-semibold mb-3">Shopping Cart</h3>
+      <div id="cart-items" class="space-y-2 mb-4 max-h-40 overflow-y-auto">
+       <p class="text-gray-500 text-center py-4">Cart is empty</p>
+      </div>
+      <div class="flex justify-between items-center text-lg font-bold border-t pt-2"><span>Total:</span> <span id="cart-total">$0.00</span>
+      </div><button id="generate-invoice" class="w-full bg-green-600 text-white py-3 px-4 rounded-md hover:bg-green-700 transition-colors mt-4 disabled:bg-gray-400" disabled> Generate Invoice </button>
+     </div>
+    </div><!-- Invoice Display -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+     <div class="flex justify-between items-center mb-4">
+      <h2 class="text-2xl font-bold text-gray-800">📄 Invoice</h2><button id="print-invoice" class="no-print bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors" style="display: none;"> Print Invoice </button>
+     </div>
+     <div id="invoice-display" class="invoice-print p-6 rounded-lg">
+      <div class="text-center text-gray-500 py-12">
+       <p class="text-lg">No invoice generated yet</p>
+       <p class="text-sm mt-2">Add items to cart and generate an invoice</p>
+      </div>
+     </div>
+    </div>
+   </div><!-- Recent Invoices -->
+   <div class="bg-white rounded-lg shadow-md p-6 mt-6">
+    <h2 class="text-2xl font-bold text-gray-800 mb-4">📋 Recent Invoices</h2>
+    <div id="recent-invoices" class="space-y-3">
+     <p class="text-gray-500 text-center py-4">No invoices yet</p>
+    </div>
+   </div><!-- Footer -->
+   <footer class="text-center text-gray-600 mt-8">
+    <p id="footer-message">Thank you for shopping with us!</p>
+   </footer>
+  </div>
+  <script>
+        // Default configuration
+        const defaultConfig = {
+            store_name: "Fresh Mart Grocery",
+            store_address: "123 Main Street, Anytown, USA",
+            footer_text: "Thank you for shopping with us!",
+            primary_color: "#16a34a",
+            secondary_color: "#2563eb"
+        };
+
+        // Grocery products data
+        const products = [
+            { id: 1, name: "🍎 Apples", price: 2.99, unit: "lb" },
+            { id: 2, name: "🍌 Bananas", price: 1.49, unit: "lb" },
+            { id: 3, name: "🥛 Milk", price: 3.49, unit: "gallon" },
+            { id: 4, name: "🍞 Bread", price: 2.79, unit: "loaf" },
+            { id: 5, name: "🥚 Eggs", price: 4.99, unit: "dozen" },
+            { id: 6, name: "🧀 Cheese", price: 5.99, unit: "lb" },
+            { id: 7, name: "🥕 Carrots", price: 1.99, unit: "lb" },
+            { id: 8, name: "🍅 Tomatoes", price: 3.99, unit: "lb" },
+            { id: 9, name: "🥔 Potatoes", price: 2.49, unit: "5lb bag" },
+            { id: 10, name: "🥬 Lettuce", price: 2.29, unit: "head" },
+            { id: 11, name: "🍗 Chicken", price: 6.99, unit: "lb" },
+            { id: 12, name: "🐟 Salmon", price: 12.99, unit: "lb" }
+        ];
+
+        // Shopping cart
+        let cart = [];
+        let invoiceCounter = 1;
+        let allInvoices = [];
+
+        // Data SDK handler
+        const dataHandler = {
+            onDataChanged(data) {
+                allInvoices = data;
+                renderRecentInvoices();
+            }
+        };
+
+        // Initialize app
+        async function initApp() {
+            // Initialize Data SDK
+            if (window.dataSdk) {
+                const initResult = await window.dataSdk.init(dataHandler);
+                if (!initResult.isOk) {
+                    console.error("Failed to initialize data SDK");
+                }
+            }
+
+            // Initialize Element SDK
+            if (window.elementSdk) {
+                await window.elementSdk.init({
+                    defaultConfig,
+                    render,
+                    mapToCapabilities,
+                    mapToEditPanelValues
+                });
+            }
+
+            renderProducts();
+            setupEventListeners();
+        }
+
+        // Render function for Element SDK
+        async function render(config) {
+            document.getElementById('store-name').textContent = config.store_name || defaultConfig.store_name;
+            document.getElementById('store-address').textContent = config.store_address || defaultConfig.store_address;
+            document.getElementById('footer-message').textContent = config.footer_text || defaultConfig.footer_text;
+            
+            // Apply colors
+            const primaryColor = config.primary_color || defaultConfig.primary_color;
+            const secondaryColor = config.secondary_color || defaultConfig.secondary_color;
+            
+            document.querySelector('header').style.backgroundColor = primaryColor;
+            document.getElementById('generate-invoice').style.backgroundColor = primaryColor;
+            document.getElementById('print-invoice').style.backgroundColor = secondaryColor;
+        }
+
+        // Capabilities mapping
+        function mapToCapabilities(config) {
+            return {
+                recolorables: [
+                    {
+                        get: () => config.primary_color || defaultConfig.primary_color,
+                        set: (value) => {
+                            if (window.elementSdk) {
+                                window.elementSdk.setConfig({ primary_color: value });
+                            }
+                        }
+                    },
+                    {
+                        get: () => config.secondary_color || defaultConfig.secondary_color,
+                        set: (value) => {
+                            if (window.elementSdk) {
+                                window.elementSdk.setConfig({ secondary_color: value });
+                            }
+                        }
+                    }
+                ],
+                borderables: [],
+                fontEditable: undefined,
+                fontSizeable: undefined
+            };
+        }
+
+        // Edit panel values mapping
+        function mapToEditPanelValues(config) {
+            return new Map([
+                ["store_name", config.store_name || defaultConfig.store_name],
+                ["store_address", config.store_address || defaultConfig.store_address],
+                ["footer_text", config.footer_text || defaultConfig.footer_text]
+            ]);
+        }
+
+        // Render products
+        function renderProducts() {
+            const productGrid = document.getElementById('product-grid');
+            productGrid.innerHTML = products.map(product => `
+                <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                    <h3 class="font-semibold text-gray-800">${product.name}</h3>
+                    <p class="text-gray-600 text-sm">$${product.price.toFixed(2)} per ${product.unit}</p>
+                    <div class="flex items-center justify-between mt-3">
+                        <input type="number" id="qty-${product.id}" min="1" value="1" class="w-16 px-2 py-1 border border-gray-300 rounded text-center">
+                        <button onclick="addToCart(${product.id})" class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition-colors text-sm">
+                            Add to Cart
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Add to cart
+        function addToCart(productId) {
+            const product = products.find(p => p.id === productId);
+            const quantity = parseInt(document.getElementById(`qty-${productId}`).value) || 1;
+            
+            const existingItem = cart.find(item => item.id === productId);
+            if (existingItem) {
+                existingItem.quantity += quantity;
+            } else {
+                cart.push({
+                    ...product,
+                    quantity: quantity
+                });
+            }
+            
+            renderCart();
+            updateGenerateButton();
+        }
+
+        // Remove from cart
+        function removeFromCart(productId) {
+            cart = cart.filter(item => item.id !== productId);
+            renderCart();
+            updateGenerateButton();
+        }
+
+        // Render cart
+        function renderCart() {
+            const cartItems = document.getElementById('cart-items');
+            const cartTotal = document.getElementById('cart-total');
+            
+            if (cart.length === 0) {
+                cartItems.innerHTML = '<p class="text-gray-500 text-center py-4">Cart is empty</p>';
+                cartTotal.textContent = '$0.00';
+                return;
+            }
+            
+            const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            
+            cartItems.innerHTML = cart.map(item => `
+                <div class="flex justify-between items-center bg-gray-50 p-2 rounded">
+                    <div class="flex-1">
+                        <span class="font-medium">${item.name}</span>
+                        <span class="text-gray-600 text-sm ml-2">${item.quantity} × $${item.price.toFixed(2)}</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="font-semibold">$${(item.price * item.quantity).toFixed(2)}</span>
+                        <button onclick="removeFromCart(${item.id})" class="text-red-600 hover:text-red-800 text-sm">✕</button>
+                    </div>
+                </div>
+            `).join('');
+            
+            cartTotal.textContent = `$${total.toFixed(2)}`;
+        }
+
+        // Update generate button
+        function updateGenerateButton() {
+            const generateBtn = document.getElementById('generate-invoice');
+            const customerName = document.getElementById('customer-name').value.trim();
+            generateBtn.disabled = cart.length === 0 || !customerName;
+        }
+
+        // Generate invoice
+        async function generateInvoice() {
+            const customerName = document.getElementById('customer-name').value.trim();
+            if (!customerName || cart.length === 0) return;
+
+            if (allInvoices.length >= 999) {
+                showNotification("Maximum limit of 999 invoices reached. Please delete some invoices first.", "error");
+                return;
+            }
+
+            const generateBtn = document.getElementById('generate-invoice');
+            generateBtn.disabled = true;
+            generateBtn.textContent = 'Generating...';
+
+            const invoiceId = `INV-${Date.now()}`;
+            const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            const currentDate = new Date();
+            
+            const invoiceData = {
+                invoice_id: invoiceId,
+                customer_name: customerName,
+                items: JSON.stringify(cart),
+                total_amount: total,
+                date: currentDate.toISOString()
+            };
+
+            // Save to Data SDK
+            if (window.dataSdk) {
+                const result = await window.dataSdk.create(invoiceData);
+                if (!result.isOk) {
+                    showNotification("Failed to save invoice. Please try again.", "error");
+                    generateBtn.disabled = false;
+                    generateBtn.textContent = 'Generate Invoice';
+                    return;
+                }
+            }
+
+            // Display invoice
+            displayInvoice(invoiceData, cart);
+            
+            // Clear cart and form
+            cart = [];
+            document.getElementById('customer-name').value = '';
+            renderCart();
+            updateGenerateButton();
+            
+            generateBtn.disabled = false;
+            generateBtn.textContent = 'Generate Invoice';
+            
+            showNotification("Invoice generated successfully!", "success");
+        }
+
+        // Display invoice
+        function displayInvoice(invoiceData, items) {
+            const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
+            const invoiceDisplay = document.getElementById('invoice-display');
+            const printBtn = document.getElementById('print-invoice');
+            
+            const date = new Date(invoiceData.date);
+            
+            invoiceDisplay.innerHTML = `
+                <div class="border-2 border-gray-300 p-6">
+                    <div class="text-center mb-6">
+                        <h1 class="text-2xl font-bold text-gray-800">${config.store_name || defaultConfig.store_name}</h1>
+                        <p class="text-gray-600">${config.store_address || defaultConfig.store_address}</p>
+                    </div>
+                    
+                    <div class="flex justify-between mb-6">
+                        <div>
+                            <h2 class="text-xl font-bold text-gray-800 mb-2">INVOICE</h2>
+                            <p><strong>Invoice #:</strong> ${invoiceData.invoice_id}</p>
+                            <p><strong>Date:</strong> ${date.toLocaleDateString()}</p>
+                            <p><strong>Time:</strong> ${date.toLocaleTimeString()}</p>
+                        </div>
+                        <div class="text-right">
+                            <h3 class="font-semibold text-gray-800">Bill To:</h3>
+                            <p class="text-lg font-medium">${invoiceData.customer_name}</p>
+                        </div>
+                    </div>
+                    
+                    <table class="w-full border-collapse border border-gray-300 mb-6">
+                        <thead>
+                            <tr class="bg-gray-100">
+                                <th class="border border-gray-300 px-4 py-2 text-left">Item</th>
+                                <th class="border border-gray-300 px-4 py-2 text-center">Qty</th>
+                                <th class="border border-gray-300 px-4 py-2 text-right">Price</th>
+                                <th class="border border-gray-300 px-4 py-2 text-right">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${items.map(item => `
+                                <tr>
+                                    <td class="border border-gray-300 px-4 py-2">${item.name}</td>
+                                    <td class="border border-gray-300 px-4 py-2 text-center">${item.quantity}</td>
+                                    <td class="border border-gray-300 px-4 py-2 text-right">$${item.price.toFixed(2)}</td>
+                                    <td class="border border-gray-300 px-4 py-2 text-right">$${(item.price * item.quantity).toFixed(2)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                        <tfoot>
+                            <tr class="bg-gray-100 font-bold">
+                                <td colspan="3" class="border border-gray-300 px-4 py-2 text-right">TOTAL:</td>
+                                <td class="border border-gray-300 px-4 py-2 text-right">$${invoiceData.total_amount.toFixed(2)}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    
+                    <div class="text-center text-gray-600">
+                        <p>${config.footer_text || defaultConfig.footer_text}</p>
+                    </div>
+                </div>
+            `;
+            
+            printBtn.style.display = 'block';
+        }
+
+        // Render recent invoices
+        function renderRecentInvoices() {
+            const recentInvoices = document.getElementById('recent-invoices');
+            
+            if (allInvoices.length === 0) {
+                recentInvoices.innerHTML = '<p class="text-gray-500 text-center py-4">No invoices yet</p>';
+                return;
+            }
+            
+            const sortedInvoices = [...allInvoices].sort((a, b) => new Date(b.date) - new Date(a.date));
+            
+            recentInvoices.innerHTML = sortedInvoices.map(invoice => {
+                const date = new Date(invoice.date);
+                return `
+                    <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <h3 class="font-semibold text-gray-800">${invoice.invoice_id}</h3>
+                                <p class="text-gray-600">Customer: ${invoice.customer_name}</p>
+                                <p class="text-sm text-gray-500">${date.toLocaleDateString()} ${date.toLocaleTimeString()}</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-lg font-bold text-green-600">$${invoice.total_amount.toFixed(2)}</p>
+                                <button onclick="viewInvoice('${invoice.__backendId}')" class="text-blue-600 hover:text-blue-800 text-sm">View</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // View invoice
+        function viewInvoice(backendId) {
+            const invoice = allInvoices.find(inv => inv.__backendId === backendId);
+            if (!invoice) return;
+            
+            const items = JSON.parse(invoice.items);
+            displayInvoice(invoice, items);
+        }
+
+        // Print invoice
+        function printInvoice() {
+            window.print();
+        }
+
+        // Show notification
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `fixed top-4 right-4 px-6 py-3 rounded-lg text-white z-50 ${
+                type === 'success' ? 'bg-green-600' : 
+                type === 'error' ? 'bg-red-600' : 'bg-blue-600'
+            }`;
+            notification.textContent = message;
+            
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
+        }
+
+        // Setup event listeners
+        function setupEventListeners() {
+            document.getElementById('customer-name').addEventListener('input', updateGenerateButton);
+            document.getElementById('generate-invoice').addEventListener('click', generateInvoice);
+            document.getElementById('print-invoice').addEventListener('click', printInvoice);
+        }
+
+        // Initialize app when DOM is loaded
+        document.addEventListener('DOMContentLoaded', initApp);
+    </script>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'98fec01b71feba5f',t:'MTc2MDY5MzE0NS4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
